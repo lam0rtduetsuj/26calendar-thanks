@@ -715,17 +715,22 @@
         b.style.top = baseY + "px";
 
         // Click behavior: pop + toast.
+        // Use independent CSS 'scale' property to animate the whole bubble
+        // without conflicting with position transform.
         b.addEventListener("click", () => {
           toast("支持者：" + sp.name);
           b.animate(
             [
-              { transform: "scale(1) translateY(0px)" },
-              { transform: "scale(1.12) translateY(-4px)" },
-              { transform: "scale(0.96) translateY(2px)" },
-              { transform: "scale(1.02) translateY(-1px)" },
-              { transform: "scale(1) translateY(0px)" },
+              { scale: "1", offset: 0 },
+              { scale: "0.85", offset: 0.1 },
+              { scale: "1.18", offset: 0.28 },
+              { scale: "0.92", offset: 0.45 },
+              { scale: "1.08", offset: 0.62 },
+              { scale: "0.97", offset: 0.78 },
+              { scale: "1.02", offset: 0.9 },
+              { scale: "1", offset: 1 },
             ],
-            { duration: 520, easing: "cubic-bezier(.2,.9,.2,1)" }
+            { duration: 600, easing: "ease-out" }
           );
         });
 
@@ -736,27 +741,36 @@
     }
 
     let bubbleRAF = 0;
+    // Cache current stage dimensions for animation loop
+    let stageW = 0, stageH = 0;
+    
     function startBubbleLoop(){
       cancelAnimationFrame(bubbleRAF);
 
       const stage = $("#bubbleStage");
       const bubbles = Array.from(stage.querySelectorAll(".bubble"));
       const rect = stage.getBoundingClientRect();
-      const W = rect.width;
-      const H = rect.height;
+      stageW = rect.width;
+      stageH = rect.height;
 
       const t0 = performance.now();
+      const bubbleSize = 74; // bubble width/height
+      const padding = 12; // safe margin from edges
 
       function loop(now){
         const t = (now - t0) / 1000;
 
         bubbles.forEach((b) => {
           const m = b._motion;
-          const x = m.baseX + Math.sin(t * m.speed + m.phase) * m.ampX;
-          const y = m.baseY + Math.cos(t * m.speed * 0.9 + m.phase) * m.ampY;
+          // Calculate raw position with oscillation
+          const rawX = m.baseX + Math.sin(t * m.speed + m.phase) * m.ampX;
+          const rawY = m.baseY + Math.cos(t * m.speed * 0.9 + m.phase) * m.ampY;
 
-          const bx = (x + W) % W;
-          const by = (y + H) % H;
+          // Clamp position within stage bounds instead of wrapping
+          const maxX = stageW - bubbleSize - padding;
+          const maxY = stageH - bubbleSize - padding;
+          const bx = clamp(rawX, padding, maxX);
+          const by = clamp(rawY, padding, maxY);
 
           b.style.transform = `translate3d(${(bx - m.baseX).toFixed(2)}px, ${(by - m.baseY).toFixed(2)}px, 0)`;
         });
@@ -808,19 +822,68 @@
 
     $("#shuffleBtn").addEventListener("click", shuffleBubbles);
 
+    // ====== Resize Handler (scale bubble positions proportionally) ======
+    let resizeTimeout = 0;
+    let prevStageW = 0, prevStageH = 0;
+    
+    function handleResize(){
+      const stage = $("#bubbleStage");
+      const rect = stage.getBoundingClientRect();
+      const newW = rect.width;
+      const newH = rect.height;
+      
+      // Skip if dimensions haven't actually changed
+      if (newW === prevStageW && newH === prevStageH) return;
+      
+      const bubbles = Array.from(stage.querySelectorAll(".bubble"));
+      
+      // If we have previous dimensions, scale positions proportionally
+      if (prevStageW > 0 && prevStageH > 0 && bubbles.length > 0) {
+        const scaleX = newW / prevStageW;
+        const scaleY = newH / prevStageH;
+        
+        bubbles.forEach((b) => {
+          const m = b._motion;
+          // Scale base position proportionally
+          m.baseX = clamp(m.baseX * scaleX, 12, newW - 90);
+          m.baseY = clamp(m.baseY * scaleY, 18, newH - 110);
+          // Also scale amplitude slightly
+          m.ampX = clamp(m.ampX * Math.sqrt(scaleX), 10, 40);
+          m.ampY = clamp(m.ampY * Math.sqrt(scaleY), 8, 32);
+          // Update CSS left/top to match new base
+          b.style.left = m.baseX + "px";
+          b.style.top = m.baseY + "px";
+        });
+        
+        // Update cached dimensions for animation loop
+        stageW = newW;
+        stageH = newH;
+      }
+      
+      prevStageW = newW;
+      prevStageH = newH;
+    }
+    
     // ====== Init ======
     function init(){
       updateProgressUI(true);
       buildBubbles();
+      
+      // Store initial dimensions
+      const stage = $("#bubbleStage");
+      const rect = stage.getBoundingClientRect();
+      prevStageW = rect.width;
+      prevStageH = rect.height;
 
+      // Debounced resize handler - scale positions instead of rebuilding
       window.addEventListener("resize", () => {
-        buildBubbles();
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(handleResize, 100);
       });
     }
     init();
   </script>
 </body>
 </html>
-
 
 
